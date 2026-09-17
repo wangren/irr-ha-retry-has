@@ -1,0 +1,17 @@
+# Build / render artifacts
+*.pdf
+*.html
+*.aux
+*.log
+*.out
+
+# Editor / OS cruft
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.vscode/
+
+# Local scratch
+scratch/
+*.bak
