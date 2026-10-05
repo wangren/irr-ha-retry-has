@@ -1,7 +1,7 @@
-# DMR HA Retry — Hardware Architecture Specification (HAS)
+# IRR HA Retry — Hardware Architecture Specification (HAS)
 
 End-to-end **retry-based flow-control** architecture for Home Agent (HA) traffic on
-Diamond Rapids (DMR), proposed as an alternative/complement to credit-based
+Iron Rapids (IRR), proposed as an alternative/complement to credit-based
 backpressure. This repository holds the architecture specification and supporting
 material, structured like other chiplet HAS repos.
 
@@ -14,8 +14,8 @@ the design space, per-agent responsibilities, and open issues ahead of modeling.
 
 | Path | Description |
 |------|-------------|
-| [docs/DMR_HA_RETRY_HAS.md](docs/DMR_HA_RETRY_HAS.md) | Main architecture specification |
-| [docs/open-issues.md](docs/open-issues.md) | Tracked open questions / risks to close before signoff |
+| [docs/IRR_HA_retry.md](docs/IRR_HA_retry.md) | Main architecture specification |
+| [docs/IRR_HA_retry_open-issues.md](docs/IRR_HA_retry_open-issues.md) | Tracked open questions / risks to close before signoff |
 
 ## Scope
 
@@ -43,5 +43,5 @@ Markdown only; render with any Markdown viewer or `pandoc` to PDF/HTML.
 
 ## Contributing
 
-See draft conventions in [docs/DMR_HA_RETRY_HAS.md](docs/DMR_HA_RETRY_HAS.md) §1.
+See draft conventions in [docs/IRR_HA_retry.md](docs/IRR_HA_retry.md) §1.
 File spec issues as tracker items (not inline comments), per HAS convention.

@@ -1,4 +1,4 @@
-# DMR HA Retry HAS — Open Issues
+# IRR HA Retry HAS — Open Issues
 
 Tracked open questions and risks to close before architecture signoff. File
 updates as tracker items per HAS convention.

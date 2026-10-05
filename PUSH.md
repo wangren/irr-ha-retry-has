@@ -7,8 +7,8 @@ target (host/org/name you'll provide).
 ## Intel GitHub Enterprise (typical)
 
 ```bash
-cd "dmr-ha-retry-has"
-git remote add origin https://github.intel.com/<ORG>/dmr-ha-retry-has.git
+cd "irr-ha-retry-has"
+git remote add origin https://github.intel.com/<ORG>/irr-ha-retry-has.git
 git branch -M main
 git push -u origin main
 ```

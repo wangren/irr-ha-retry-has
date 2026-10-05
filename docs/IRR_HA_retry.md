@@ -1,9 +1,9 @@
-# DMR HA Retry — Hardware Architecture Specification
+# IRR HA Retry — Hardware Architecture Specification
 
-**Document:** DMR_HA_RETRY_HAS
+**Document:** IRR_HA_retry
 **Revision:** 0.1 (DRAFT — for discussion, not approved architecture)
 **Date:** 2026-09-17
-**Scope:** End-to-end retry-based flow control for Home Agent (HA) traffic on DMR
+**Scope:** End-to-end retry-based flow control for Home Agent (HA) traffic on IRR
 
 ---
 
@@ -12,7 +12,7 @@
 ### 1.1 Purpose
 
 This document specifies an **end-to-end (E2E) retry-based flow-control**
-architecture for Home Agent traffic on Diamond Rapids (DMR). It defines the
+architecture for Home Agent traffic on Iron Rapids (IRR). It defines the
 responsibilities of the three participating agent classes — the **Core**
 (Requester / Caching Agent, CA), the **Fabric** (NIP-based interconnect), and
 the **Home Agent** (HA, as implemented by the HAMVF IP) — and the messages,
@@ -46,8 +46,8 @@ complexity.
 
 This architecture borrows the **grant-gated retry** discipline of ARM AMBA CHI's
 end-to-end flow control. The mapping is summarized in §6 and cross-referenced
-throughout. Where a CHI primitive maps cleanly, the CHI name is cited. Where DMR
-needs behavior CHI does not express, a **new** DMR name is introduced and its
+throughout. Where a CHI primitive maps cleanly, the CHI name is cited. Where IRR
+needs behavior CHI does not express, a **new** IRR name is introduced and its
 nearest CHI relative is noted explicitly.
 
 ### 1.4 Terminology
@@ -65,7 +65,7 @@ nearest CHI relative is noted explicitly.
 ### 1.5 Conventions
 
 - Spec issues are filed as tracker items, not inline comments (per HAS convention).
-- **New DMR message/signal names are prefixed `HR_`** (HA-Retry) to distinguish
+- **New IRR message/signal names are prefixed `HR_`** (HA-Retry) to distinguish
   them from inherited UXI/NIP/CHI names.
 - Requirement keywords (**shall**, **should**, **may**) follow RFC 2119 intent.
 
@@ -150,7 +150,7 @@ counters of §5.1 to reconcile "grant received but retry not yet reissued" vs.
 (write/WB) messages, the CA **shall** retain the data payload (or a re-fetchable
 handle) until the grant-gated reissue completes. Buffering cost is bounded and
 comparable to a pull protocol's (see §7.3). Related CHI: write retry with
-DataPull-style semantics; **DMR extends** this to arbitrary data VCs.
+DataPull-style semantics; **IRR extends** this to arbitrary data VCs.
 
 ### 3.2 Fabric (NIP interconnect) — what must do
 
@@ -199,7 +199,7 @@ is a narrow precedent for HA-initiated retry.
 
 **3.3.3 Pool identification.** Each `HR_RetryAck` **shall** carry a `PoolID`
 identifying which resource pool the source must be granted before reissue.
-Related CHI: `PCrdType`. **DMR difference:** pools **may** be defined per
+Related CHI: `PCrdType`. **IRR difference:** pools **may** be defined per
 `{resource-class, VC}` rather than CHI's per-transaction-class only (§6).
 
 **3.3.4 Grant generation.** When a pooled resource becomes available the HA
@@ -223,7 +223,7 @@ forever. The HA **shall** support a reconciliation/timeout path (see OI-2).
 
 ## 4. Messages
 
-New DMR messages are prefixed `HR_`. Each entry notes its nearest CHI relative.
+New IRR messages are prefixed `HR_`. Each entry notes its nearest CHI relative.
 
 ### 4.1 HR_RetryAck (HA → CA)
 
@@ -231,7 +231,7 @@ New DMR messages are prefixed `HR_`. Each entry notes its nearest CHI relative.
   retain reissue state and await a grant.
 - **Fields:** target transaction handle (to identify the retried request at the
   source), `PoolID`, VC.
-- **CHI relative:** `RetryAck` (response with `PCrdType`). **DMR change:** `PoolID`
+- **CHI relative:** `RetryAck` (response with `PCrdType`). **IRR change:** `PoolID`
   granularity may include VC.
 
 ### 4.2 (reuse) Request / Reissue (CA → HA)
@@ -240,14 +240,14 @@ New DMR messages are prefixed `HR_`. Each entry notes its nearest CHI relative.
   opcode is required. A reissued request **may** set a 1-bit `HR_Reissue` hint so
   the HA can distinguish first-issue from reissue for telemetry (optional).
 - **CHI relative:** reissued request after PCrdGrant (no distinct opcode in CHI
-  either). The `HR_Reissue` hint has **no CHI equivalent** (DMR telemetry aid).
+  either). The `HR_Reissue` hint has **no CHI equivalent** (IRR telemetry aid).
 
 ### 4.3 HR_Grant (HA → CA)
 
 - **Purpose:** authorize the source to reissue exactly one retried request for the
   named pool.
 - **Fields:** `PoolID`, VC, grant count (default 1; batched grants optional).
-- **CHI relative:** `PCrdGrant`. **DMR change:** optional batched grant-count has
+- **CHI relative:** `PCrdGrant`. **IRR change:** optional batched grant-count has
   no direct CHI single-grant equivalent (CHI grants one credit per PCrdGrant).
 
 ### 4.4 Ordering note
@@ -256,7 +256,7 @@ New DMR messages are prefixed `HR_`. Each entry notes its nearest CHI relative.
 **may** arrive at the source in either order relative to a preceding
 `HR_RetryAck`. Sources reconcile via §5.1 counters. This is the same hazard
 Thibaut flagged ("credit returns may bypass retries"). CHI avoids some of this by
-tighter channel rules; **DMR chooses** endpoint reconciliation to keep the fabric
+tighter channel rules; **IRR chooses** endpoint reconciliation to keep the fabric
 unchanged (§3.2.4).
 
 ---
@@ -317,7 +317,7 @@ act selectively — forfeiting the QoS goal (§1.2 benefit 4).
 
 ### 5.4 Cost driver is logic, not storage
 
-Storage is negligible at DMR throughput. The real cost is per-cycle logic:
+Storage is negligible at IRR throughput. The real cost is per-cycle logic:
 multi-increment/decrement saturating counters with arbitration (if multiple
 retries/completions per source per cycle) and per-source threshold comparators
 evaluated combinationally to sustain the N/cycle retry-decision rate (§3.3.1).
@@ -326,7 +326,7 @@ evaluated combinationally to sustain the N/cycle retry-decision rate (§3.3.1).
 
 ## 6. CHI E2E Mapping Summary
 
-| DMR concept | Nearest CHI primitive | Difference / why new |
+| IRR concept | Nearest CHI primitive | Difference / why new |
 |-------------|----------------------|----------------------|
 | `HR_RetryAck` | `RetryAck` (+`PCrdType`) | `PoolID` may include VC granularity |
 | `HR_Grant` | `PCrdGrant` | Optional batched grant-count |
@@ -334,7 +334,7 @@ evaluated combinationally to sustain the N/cycle retry-decision rate (§3.3.1).
 | `PoolID` | `PCrdType` | Per-`{resource-class,VC}`, not per-transaction-class only |
 | Per-source occupancy | Per-Requester outstanding @ HN | Explicit QoS/early-retry use |
 | Grant-gated reissue (P1) | RetryAck→PCrdGrant discipline | Adopted directly (livelock-safe) |
-| Endpoint reconciliation (§4.4) | CHI channel ordering rules | DMR moves it to endpoints to keep fabric unchanged |
+| Endpoint reconciliation (§4.4) | CHI channel ordering rules | IRR moves it to endpoints to keep fabric unchanged |
 | Retryable data messages (§3.1.5) | Write retry / DataPull | Generalized to arbitrary data VCs (push-to-pull) |
 
 **Key adopted idea:** CHI's retry is **credit-grant-gated, not spin-based** — the
@@ -425,4 +425,4 @@ Tracked separately in [open-issues.md](open-issues.md). Summary:
 - Intel UXI Specification Rev 1 — Home Agent protocol role.
 - ARM AMBA CHI (issue E or later) — E2E flow control: RetryAck, PCrdType,
   PCrdGrant.
-- DMR docs index: https://docs.intel.com/documents/arch_datacenter/DMR/index.html
+- IRR docs index: https://docs.intel.com/documents/arch_datacenter/IRR/index.html
