@@ -5,6 +5,14 @@
 **Date:** 2026-09-17
 **Scope:** End-to-end retry-based flow control for Home Agent (HA) traffic on IRR
 
+> **AI-generated content disclaimer.** Substantial portions of this document were
+> drafted with AI assistance. Content may contain errors, omissions, or
+> misinterpretations of the referenced specifications and has **not** been fully
+> verified. Treat all statements — especially those attributed to public HAS
+> sources — as **unverified** until independently confirmed against the
+> authoritative specifications and reviewed by the responsible architects. This
+> is a discussion draft, not approved architecture.
+
 ---
 
 ## 1. Introduction & Conventions
