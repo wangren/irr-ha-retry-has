@@ -137,6 +137,39 @@ decision must factor both **capacity** and **fairness/occupancy**.
 
 ### 2.1 Retry lifecycle (happy path)
 
+> Editable source for all figures: [assets/irr_ha_retry.drawio](assets/irr_ha_retry.drawio)
+> (draw.io; page 1 = mechanism, page 2 = bottleneck vs fix). The Mermaid figures
+> below render inline on GitHub.
+
+**Figure 1 — E2E crediting: speculative first attempt, credited second attempt.**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant R as Core / Requester (CA front-end)
+    participant F as NIP Fabric
+    participant H as Home Agent (HAMVF)
+    Note over R: full request state kept in requester tracker<br/>+ speculative-ongoing counter
+    R->>F: Request (speculative, bit=spec)
+    F->>H: deliver
+    alt accept (room for this VC & under QoS cap)
+        H->>H: allocate UT (+ UDB if data)
+        H-->>R: Cmp* / Data
+    else retry (over cap OR no room for VC)
+        H-->>F: HR_RetryAck(PoolID)  [dedicated retry/grant VC]
+        F-->>R: drained from fabric; retain tracker, mark "retry expected"
+        Note over H: when a UT/UDB entry frees,<br/>fair grant arbiter selects a waiter
+        H-->>R: HR_Grant(PoolID)  [same ordered VC]
+        R->>F: Reissue (credited, bit=retried)
+        F->>H: deliver
+        H->>H: accept & allocate (guaranteed success)
+        H-->>R: Cmp* / Data
+    end
+```
+
+<details>
+<summary>Plain-text lifecycle (same flow)</summary>
+
 ```
   Core requester / CA front-end  Fabric (NIP)                 HA (HAMVF)
      |                                 |                            |
@@ -162,6 +195,8 @@ decision must factor both **capacity** and **fairness/occupancy**.
      |   7. Cmp* / Data         |                            |
      |<-------------------------|<---------------------------|
 ```
+
+</details>
 
 ### 2.2 Key principles
 
@@ -232,6 +267,33 @@ re-create the same head-of-line blocking at a higher absolute occupancy. The roo
 gap is the **absence of a per-requester admission/fairness mechanism** in front of
 the shared UT/UDB resource — not raw capacity. This is the specific gap the IRR
 retry design targets (§3.3, §5).
+
+**Figure 2 — Shared UT/UDB bottleneck (baseline) vs. per-requester fairness gate (IRR).**
+
+```mermaid
+flowchart LR
+    subgraph BASE["BASELINE — allocate-and-hold, no fairness"]
+        direction LR
+        bA["Agent A<br/>(DDIO / L2-sourced,<br/>long hold time)"]
+        bB["Agent B<br/>(reads to memory,<br/>unrelated)"]
+        bPool["Shared UT + UDB pool<br/>(first-come, single queue)"]
+        bA --> bPool
+        bB -. stalls behind A .-> bPool
+        bPool --> bHOL["Head-of-line blocking:<br/>aggregate BW collapses<br/>to A's rate (~30 GB/s)"]
+    end
+    subgraph FIX["IRR FIX — per-requester gate + PoolID isolation"]
+        direction LR
+        fA["Agent A"]
+        fB["Agent B"]
+        fGate{"Admission gate<br/>per-requester cap<br/>+ per-VC availability"}
+        fA -- over cap --> fGate
+        fB -- under cap --> fGate
+        fGate -- retry (drain) --> fPoolA["PoolID: long-hold<br/>(bounded)"]
+        fGate -- accept --> fPoolB["PoolID: other coherent<br/>(keeps progressing)"]
+        fPoolA --> fOK["Fair BW sharing:<br/>B unaffected,<br/>no aggregate collapse"]
+        fPoolB --> fOK
+    end
+```
 
 ---
 
