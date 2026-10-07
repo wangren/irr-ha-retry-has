@@ -143,6 +143,11 @@ decision must factor both **capacity** and **fairness/occupancy**.
 
 **Figure 1 — E2E crediting: speculative first attempt, credited second attempt.**
 
+![IRR HA retry mechanism](assets/irr_ha_retry-arch.svg)
+
+<details>
+<summary>Mermaid version (same flow)</summary>
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -166,6 +171,8 @@ sequenceDiagram
         H-->>R: Cmp* / Data
     end
 ```
+
+</details>
 
 <details>
 <summary>Plain-text lifecycle (same flow)</summary>
@@ -270,6 +277,11 @@ retry design targets (§3.3, §5).
 
 **Figure 2 — Shared UT/UDB bottleneck (baseline) vs. per-requester fairness gate (IRR).**
 
+![Bottleneck vs fix](assets/irr_ha_retry_bottleneck.svg)
+
+<details>
+<summary>Mermaid version (same comparison)</summary>
+
 ```mermaid
 flowchart LR
     subgraph BASE["BASELINE — allocate-and-hold, no fairness"]
@@ -294,6 +306,8 @@ flowchart LR
         fPoolB --> fOK
     end
 ```
+
+</details>
 
 ---
 
