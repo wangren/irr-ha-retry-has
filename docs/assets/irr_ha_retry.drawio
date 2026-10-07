@@ -1,0 +1,179 @@
+<mxfile host="app.diagrams.net" agent="GitHub Copilot" version="24.0.0">
+  <diagram id="mechanism" name="1. Retry Mechanism">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="IRR HA Retry — E2E crediting: speculative 1st attempt, credited 2nd attempt" style="text;html=1;fontSize=16;fontStyle=1;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="840" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Lanes -->
+        <mxCell id="laneReq" value="Core / Requester (CA front-end)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=top;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="70" width="300" height="640" as="geometry" />
+        </mxCell>
+        <mxCell id="laneFab" value="NIP Fabric" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;verticalAlign=top;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="380" y="70" width="240" height="640" as="geometry" />
+        </mxCell>
+        <mxCell id="laneHA" value="Home Agent (HAMVF)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;verticalAlign=top;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="660" y="70" width="460" height="640" as="geometry" />
+        </mxCell>
+
+        <!-- Requester internals -->
+        <mxCell id="reqTracker" value="Request tracker&#10;(full per-request state:&#10;addr, opcode, VC, PoolID)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="70" y="120" width="240" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="reqSpec" value="Speculative-ongoing counter&#10;(back off speculation → credited)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="70" y="210" width="240" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Fabric VC -->
+        <mxCell id="vcMain" value="Request / Data VCs" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="410" y="130" width="180" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="vcRetry" value="Dedicated retry/grant VC&#10;(low KPI, ordered)&#10;HR_RetryAck + HR_Grant" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="410" y="300" width="180" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- HA internals -->
+        <mxCell id="haGate" value="Admission gate (NEW)&#10;• per-requester occupancy vs QoS cap&#10;• per-VC availability (reservations)&#10;• accept vs. early-retry decision (N/cycle)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="690" y="120" width="400" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="haUT" value="Unified Tracker (UT)&#10;all outstanding txns&#10;(finite, reserved entries)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="690" y="240" width="190" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="haUDB" value="HA Data Buffer (UDB)&#10;shared, fewer than UT&#10;CMI / mesh / shared pools" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="900" y="240" width="190" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="haArb" value="Grant arbiter&#10;(fair: round-robin / priority-weighted;&#10;emits HR_Grant(PoolID) when entry frees)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="690" y="360" width="400" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="haCounters" value="Per-{source,VC} occupancy counters + aggregate per-VC pooled-resource counters&#10;(compact — no per-request table at target)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="690" y="460" width="400" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Flow arrows -->
+        <mxCell id="f1" value="1. Speculative request (bit=spec)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#6c8ebf;fontSize=10;endArrow=block;" edge="1" parent="1" source="reqTracker" target="vcMain">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f2" value="2. deliver" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#666666;fontSize=10;endArrow=block;" edge="1" parent="1" source="vcMain" target="haGate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f3" value="3a. accept → allocate" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#82b366;fontSize=10;endArrow=block;" edge="1" parent="1" source="haGate" target="haUT">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f3b" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#82b366;fontSize=10;endArrow=block;" edge="1" parent="1" source="haGate" target="haUDB">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f4" value="3b. over cap / no room for VC → HR_RetryAck(PoolID)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#d6b656;fontSize=10;endArrow=block;dashed=1;" edge="1" parent="1" source="haGate" target="vcRetry">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="640" y="165" /><mxPoint x="640" y="320" /></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="f5" value="4. retry → retain tracker, mark retry-expected (drained from fabric)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#d6b656;fontSize=10;endArrow=block;dashed=1;" edge="1" parent="1" source="vcRetry" target="reqSpec">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f6" value="5. entry frees → arbiter → HR_Grant(PoolID)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#d79b00;fontSize=10;endArrow=block;" edge="1" parent="1" source="haArb" target="vcRetry">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="640" y="395" /></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="f7" value="6. credited reissue (bit=retried)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#6c8ebf;fontSize=10;endArrow=block;" edge="1" parent="1" source="reqSpec" target="vcMain">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="360" y="235" /><mxPoint x="360" y="150" /></Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="f8" value="dealloc → decrement counters (UT and UDB free separately)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b85450;fontSize=10;endArrow=block;dashed=1;" edge="1" parent="1" source="haUT" target="haCounters">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f8b" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b85450;fontSize=10;endArrow=block;dashed=1;" edge="1" parent="1" source="haUDB" target="haCounters">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="f9" value="feeds decision" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#b85450;fontSize=10;endArrow=block;" edge="1" parent="1" source="haCounters" target="haGate">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points"><mxPoint x="1110" y="490" /><mxPoint x="1110" y="165" /></Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="note1" value="Guarantee: credited 2nd attempt always succeeds (forward progress).&#10;Separate concern: hysteresis exit from sustained ≈2× retry regime (perf, §7.2).&#10;Deadlock freedom: reservations exposed as per-VC availability — not detection." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="690" y="560" width="400" height="90" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="bottleneck" name="2. Bottleneck vs Fix">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="826" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="t2" value="Shared UT/UDB bottleneck (baseline)  vs.  per-requester fairness gate (IRR)" style="text;html=1;fontSize=16;fontStyle=1;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="900" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- Baseline box -->
+        <mxCell id="baseBox" value="BASELINE — allocate-and-hold, no fairness" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;verticalAlign=top;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="70" width="520" height="470" as="geometry" />
+        </mxCell>
+        <mxCell id="bA" value="Agent A (DDIO / L2-sourced)&#10;long hold time per entry" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="70" y="120" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="bB" value="Agent B (reads to memory)&#10;unrelated traffic" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="70" y="210" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="bShared" value="Shared UT + UDB pool&#10;(single queue, first-come)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="330" y="150" width="190" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="bHOL" value="Head-of-line blocking:&#10;A monopolizes shared pool →&#10;B stalls → aggregate BW collapses&#10;to A's slow rate (~30 GB/s)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="70" y="320" width="450" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="bNote" value="More entries ≠ fix: without QoS, one agent still monopolizes at higher occupancy." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="70" y="430" width="450" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="bEdgeA" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#b85450;" edge="1" parent="1" source="bA" target="bShared">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="bEdgeB" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#b85450;dashed=1;" edge="1" parent="1" source="bB" target="bShared">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Fix box -->
+        <mxCell id="fixBox" value="IRR FIX — per-requester gate + PoolID isolation + grant-gated recovery" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;verticalAlign=top;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="600" y="70" width="520" height="470" as="geometry" />
+        </mxCell>
+        <mxCell id="fA" value="Agent A (DDIO / L2-sourced)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="630" y="120" width="190" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="fB" value="Agent B (reads to memory)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="630" y="200" width="190" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="fGate" value="Admission gate&#10;per-requester cap + per-VC avail" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="860" y="120" width="230" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="fPoolA" value="PoolID: long-hold (DDIO)&#10;bounded pool" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="860" y="220" width="230" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="fPoolB" value="PoolID: other coherent traffic&#10;keeps progressing" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="860" y="290" width="230" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="fResult" value="A over cap → retried (drained);&#10;B unaffected → fair BW sharing,&#10;no aggregate collapse" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;align=left;spacingLeft=8;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="630" y="370" width="460" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="fEdgeA" value="over cap → retry" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#d79b00;fontSize=10;dashed=1;" edge="1" parent="1" source="fA" target="fGate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fEdgeB" value="within cap → accept" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#82b366;fontSize=10;" edge="1" parent="1" source="fB" target="fGate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fEdge2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#82b366;" edge="1" parent="1" source="fGate" target="fPoolA">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fEdge3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;strokeColor=#82b366;" edge="1" parent="1" source="fGate" target="fPoolB">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
