@@ -21,19 +21,27 @@
 
 This document specifies an **end-to-end (E2E) retry-based flow-control**
 architecture for Home Agent traffic on Iron Rapids (IRR). It defines the
-responsibilities of the cores (the true request sources), the shared **Core-side
-CA / requester front-end** that distributes credit and arbitration, the **Fabric**
-(NIP-based interconnect), and the **Home Agent** (HA, as implemented by the
-HAMVF IP). The architecture separates:
+responsibilities of the **requesters** — which include both **cores** (via the
+core-side caching agent, IACA) and **IO agents** (the IO caching agent / SCA,
+IOCA; e.g. PCIe/DDIO traffic) — the shared **CA / requester front-end** that
+distributes credit and arbitration, the **Fabric** (NIP-based interconnect), and
+the **Home Agent** (HA, as implemented by the HAMVF IP). The architecture
+separates:
 
-- the **full request state** retained at the requester side (owned by the cores /
-  logical requesters), and
+- the **full request state** retained at the requester side (owned by the
+  core or IO requester / logical requester instances), and
 - the **aggregate pressure / grant state** tracked at the target side (HA).
 
-This separation is intentional: the cores hold the exact pending-request metadata
-needed to reissue a rejected transaction; the CA is a shared core-side
+This separation is intentional: the requester holds the exact pending-request
+metadata needed to reissue a rejected transaction; the CA is a shared requester-side
 coordinator for scheduling and credit accounting, not the owner of every request
 in flight.
+
+> **Note (figures):** the DDIO/VPP sighting that motivated this work is an **IO**
+> requester case (PCIe traffic through IOCA). Requesters are therefore **not**
+> limited to cores. The figures in §2 currently label the requester lane as a
+> core/CA front-end for brevity; they will be **updated** to show IO (IOCA) and
+> core (IACA) requesters explicitly.
 
 Retry allows a target that cannot currently accept a request to *reject* it
 ("retry it") rather than buffer it in the interconnect. The rejected request is
@@ -87,8 +95,8 @@ nearest CHI relative is noted explicitly.
 
 | Term | Meaning |
 |------|---------|
-| Core / requester source | The true owner of a request and the owner of the full retry state. Each core or logical requester tracks its own outstanding requests. |
-| CA | Shared core-side coordination / credit-distribution front-end used by the requesters. It may arbitrate among cores and manage aggregate per-core pressure, but it does not own the full per-request state for every transaction. |
+| Core / IO requester source | The true owner of a request and the owner of the full retry state. Each requester — a core (via IACA) or an IO agent (via IOCA/SCA, e.g. PCIe/DDIO) — tracks its own outstanding requests. |
+| CA | Shared requester-side coordination / credit-distribution front-end used by the requesters (cores via IACA, IO via IOCA). It may arbitrate among requesters and manage aggregate per-requester pressure, but it does not own the full per-request state for every transaction. |
 | HA | Home Agent (HAMVF IP) servicing requests (the "target"). |
 | Fabric / NIP | On-die interconnect carrying messages (NIP 2.0, no BRIDGE IP for HAMVF). |
 | VC | Virtual Channel (independent flow-control/ordering domain). |
@@ -253,17 +261,19 @@ retry design targets (§3.3, §5).
 
 ## 3. Agent Responsibilities
 
-### 3.1 Core-side requesters — what must change
+### 3.1 Requesters (core and IO) — what must change
 
-The true request sources are the cores (or logical requester instances behind the
-cores). The **full request state** of a rejected transaction is owned by the
-requester-side tracker, not by a single shared CA table. The CA is a shared
-core-side coordination structure for arbitration and credit distribution, but it
-is not the owner of every per-request entry.
+The true request sources are the **requesters**: cores (via IACA) **and** IO
+agents (via IOCA/SCA, e.g. PCIe/DDIO). The DDIO sighting that motivated this work
+is an IO-requester case, so nothing here is core-specific. The **full request
+state** of a rejected transaction is owned by the requester-side tracker, not by a
+single shared CA table. The CA is a shared requester-side coordination structure
+for arbitration and credit distribution, but it is not the owner of every
+per-request entry.
 
 The retry feature adds the following requester-side responsibilities:
 
-**3.1.1 Speculative issue.** A core-side requester **may** issue a request
+**3.1.1 Speculative issue.** A requester (core or IO) **may** issue a request
 without holding a pre-allocated target credit (unlike a pure credit scheme).
 Related CHI behavior: CHI Requesters may send without a P-Credit and handle
 RetryAck.
