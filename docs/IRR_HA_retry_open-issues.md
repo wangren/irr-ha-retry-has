@@ -15,3 +15,5 @@ updates as tracker items per HAS convention.
 | OI-8 | Per-cycle retry-decision logic cost | Medium | — | Size the N/cycle admission logic + per-source comparators (the real cost driver, not counter storage). |
 | OI-9 | Data-message retry buffering | Medium | — | Confirm retained-data buffering bound (§7.3) and re-fetch vs. retain tradeoff for retryable write/WB data. |
 | OI-10 | Push-to-pull scenario detail | Low | Thibaut | Capture the specific protocol-interop deadlock scenario Thibaut offered to elaborate; it is the strongest justification for retryable data. |
+| OI-11 | Source issue policy under retry | Medium | Thibaut | Speculative-ongoing counter behavior; speculative→credited backoff under pressure; upfront bulk credit-acquisition (one message, many credits) to give the target breathing room (§5.1). Brainstorm/model. |
+| OI-12 | Dedicated retry/grant VC & ordering | Medium | Thibaut | `HR_RetryAck` on a dedicated low-KPI VC; `HR_Grant` may share it; if retry↔grant order is guaranteed on that VC, drop endpoint reconciliation counters (§3.2.1, §4.4). |

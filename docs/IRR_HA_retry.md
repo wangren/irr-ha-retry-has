@@ -41,6 +41,23 @@ drained from the fabric and later reissued by the source once the target signals
 it is ready. This trades interconnect buffering/pressure for endpoint tracking
 complexity.
 
+**Domain-generality.** Although this document develops the mechanism in the
+HAMVF (HA) ↔ CBB (requester) context, the scheme is a **general** shared-resource
+flow-control primitive. It applies to *any* pair of endpoints that share a
+finite, allocate-and-held tracking resource behind a fabric — e.g. the HA
+UT/UDB (this document), the uncore Table of Requests (ToR, §3.7), and the
+intra-CBB L2↔L3 path (under consideration separately). Nothing in the core
+mechanism (speculative first attempt, target-side retry, grant-gated credited
+reissue, per-`{source,VC}` accounting) is specific to HAMVF.
+
+**Framing: this is fundamentally E2E crediting.** The mechanism is best understood
+as an **end-to-end crediting** scheme with a **speculative first attempt** and a
+**credited second attempt**. The first issue is sent speculatively (no credit
+held); if the target cannot accept it, the target retries it and later returns a
+credit (grant); the source then reissues, credited, and is **guaranteed to
+succeed on this second attempt**. This framing matters for terminology (§7) and
+for the per-message speculative/retried distinction (§4.2).
+
 ### 1.2 Rationale (why retry)
 
 1. **Interconnect pressure reduction.** Retryable messages are drained from the
@@ -156,8 +173,11 @@ decision must factor both **capacity** and **fairness/occupancy**.
   decision.
 - **P3 — Bounded reissue.** Outstanding reissues from a source are bounded by
   the number of grants the target has emitted, so the target paces recovery.
-- **P4 — Guaranteed exit.** The system **shall** provably return to non-retry
-  operation after congestion clears (no permanent retry regime — see §7).
+- **P4 — Two guarantees, kept separate.** (a) *Forward progress:* every request
+  succeeds on its **credited second attempt** (inherent to E2E crediting). (b)
+  *Retry-regime exit:* the system **shall** provably leave a sustained ≈2×
+  two-attempt regime after congestion clears, via hysteresis (§7.2). These are a
+  correctness and a performance guarantee respectively — not the same thing.
 - **P5 — Occupancy-based QoS.** The retry/accept decision **may** use per-source
   occupancy and message priority to enforce fairness and anti-starvation (§5).
 
@@ -267,9 +287,22 @@ responsibility.
 The NIP fabric is **not** the retry decision-maker; retry is an endpoint (CA/HA)
 function. The fabric's obligations:
 
-**3.2.1 Retryable-VC transport.** The fabric **shall** carry `HR_RetryAck` and
-`HR_Grant` as response-class messages routable from HA back to the originating
-CA, using existing NIP response routing (HNID/HTID-style, cf. HAMVF §8.10.7).
+**3.2.1 Retry/grant VC transport.** The retry (reject) message `HR_RetryAck`
+**shall** travel on its **own dedicated fabric VC**. This is not strictly
+mandatory, but it is the **simple and safe** choice: a retry message must never be
+blocked behind traffic that is itself subject to congestion/retry, or a
+dependency loop can form. Because retry events are relatively infrequent and
+small, the performance (bandwidth) requirement for this VC is **low**, so a
+dedicated VC is cheap.
+
+The grant (credit-return) message `HR_Grant` is **drainable** (it always makes
+forward progress and is consumed at the source without needing a scarce
+downstream resource), so it does **not** by itself require a dedicated VC and
+*could* share with other drainable messages. In practice, however, IRR **places
+both `HR_RetryAck` and `HR_Grant` on the same dedicated low-KPI VC**. Doing so
+opens an opportunity to **keep retry and grant ordered** relative to each other
+(see §4.4), which can eliminate endpoint reconciliation counters. Both are carried
+using existing NIP response routing (HNID/HTID-style, cf. HAMVF §8.10.7).
 
 **3.2.2 Draining, not buffering.** When a request is retried, the fabric holds no
 residual state — the request has already been delivered to the HA and
@@ -282,9 +315,13 @@ to dedicated per-VC buffering (§1.2 benefit 1). The fabric **shall** expose whi
 VCs qualify via configuration; mixing a non-retryable class into such a VC is a
 misconfiguration (§8).
 
-**3.2.4 No new ordering guarantees required.** The fabric **shall not** be
-required to order `HR_Grant` relative to credit returns; reconciliation is an
-endpoint responsibility (§3.1.4, §4.4). This keeps fabric changes minimal.
+**3.2.4 Ordering on the shared retry/grant VC (opportunity).** Because
+`HR_RetryAck` and `HR_Grant` share one dedicated VC (§3.2.1), the fabric **may**
+preserve their mutual order cheaply. If that order is guaranteed, the endpoint
+reconciliation counters of §5.1 can be **reduced or eliminated** (§4.4). Absent
+such a guarantee, reconciliation remains an endpoint responsibility (§3.1.4,
+§4.4). Either way the fabric needs no new *global* ordering across unrelated
+VCs.
 
 **3.2.5 Congestion-internal caveat.** Retry addresses endpoint-induced
 congestion. Congestion *inside* the fabric is not resolved by this mechanism
@@ -303,9 +340,9 @@ the existing "trash-and-retry" DRS/NDR deadlock breaker (HAMVF §8.10.28.1), whi
 is a narrow precedent for HA-initiated retry.
 
 **3.3.2 Retry causes.** The HA **shall** retry a request when any of:
-- no free tracker/resource in the target pool (resource exhaustion);
-- per-source occupancy exceeds its QoS cap (§5.2) — *early retry*;
-- forced retry for deadlock/livelock avoidance (§7).
+- the resource is not available **for that request's VC** (§3.3.8) — resource
+  exhaustion as seen through per-VC availability;
+- per-source occupancy exceeds its QoS cap (§5.2) — *early retry*.
 
 **3.3.3 Pool identification.** Each `HR_RetryAck` **shall** carry a `PoolID`
 identifying which resource pool the source must be granted before reissue.
@@ -331,11 +368,28 @@ requests; it is a global admission gate that must be managed across multiple
 in-flight transactions and multiple sources. The IRR design treats this as the
 real target-side pressure state that drives early retry and fairness throttling.
 
-**3.3.6 Livelock exit.** The HA **shall** implement the anti-livelock mechanism
-of §7 guaranteeing eventual return to non-retry operation.
+**3.3.6 Forward progress & retry-regime exit.** Two *distinct* guarantees are
+required (see §7 for the precise distinction):
+- **Forward progress (general):** every retried request is **guaranteed to
+  succeed on its credited second attempt** — this is inherent to the E2E crediting
+  model and does **not** require a special mechanism.
+- **Retry-regime exit (performance):** the HA **shall** implement the hysteresis
+  mechanism of §7.2 so the system leaves a sustained "two-attempt" (≈2×) regime
+  once congestion clears. This is a performance guarantee, not a correctness one.
 
 **3.3.7 Grant loss / robustness.** A lost `HR_Grant` must not deadlock a source
 forever. The HA **shall** support a reconciliation/timeout path (see OI-2).
+
+**3.3.8 No deadlock *detection* at the HA — deadlock avoidance is by reservation.**
+The HA does **not** implement deadlock detection or a special "forced retry for
+deadlock" case. Instead, HA resources carry the necessary **reservations** so that
+deadlock cannot occur. These reservations are exposed to the retry mechanism as
+**per-VC availability**: the *same* physical resource may appear **available to
+one VC and unavailable to another**, depending on what is reserved for each VC.
+Consequently, "is there room?" is always a **per-VC** question (not a single
+global free count), and this per-VC availability is precisely what guarantees
+deadlock freedom. This is why per-VC tracking is **mandatory**, not optional
+(§5.2, §5.3).
 
 ### 3.4 How the IRR design fixes the UT / HA data-buffer bottleneck
 
@@ -547,13 +601,19 @@ New IRR messages are prefixed `HR_`. Each entry notes its nearest CHI relative.
 - **CHI relative:** `RetryAck` (response with `PCrdType`). **IRR change:** `PoolID`
   granularity may include VC.
 
-### 4.2 (reuse) Request / Reissue (CA → HA)
+### 4.2 (reuse) Request / Reissue (CA → HA) — with a mandatory speculative/retried bit
 
 - Reissue uses the **same** request encoding as the original request; no new
-  opcode is required. A reissued request **may** set a 1-bit `HR_Reissue` hint so
-  the HA can distinguish first-issue from reissue for telemetry (optional).
-- **CHI relative:** reissued request after PCrdGrant (no distinct opcode in CHI
-  either). The `HR_Reissue` hint has **no CHI equivalent** (IRR telemetry aid).
+  opcode is required.
+- Every request **shall** carry a **1-bit speculative/retried indication**
+  (`HR_Reissue`) stating whether this is a **first (speculative)** attempt or a
+  **reissued (credited/retried)** attempt. This bit is **mandatory and
+  functional**, not merely telemetry: the target cannot make correct decisions
+  (e.g. which occupancy/credit counters to update, whether a reserved/credited
+  resource applies) without explicitly differentiating speculative from retried
+  messages on a per-message basis.
+- **CHI relative:** reissued request after PCrdGrant. CHI does not carry a
+  distinct per-message speculative/retried bit; IRR makes it explicit.
 
 ### 4.3 HR_Grant (HA → CA)
 
@@ -565,12 +625,15 @@ New IRR messages are prefixed `HR_`. Each entry notes its nearest CHI relative.
 
 ### 4.4 Ordering note
 
-`HR_Grant` and normal credit/completion returns travel on response paths and
-**may** arrive at the source in either order relative to a preceding
-`HR_RetryAck`. Sources reconcile via §5.1 counters. This is the same hazard
-Thibaut flagged ("credit returns may bypass retries"). CHI avoids some of this by
-tighter channel rules; **IRR chooses** endpoint reconciliation to keep the fabric
-unchanged (§3.2.4).
+If `HR_RetryAck` and `HR_Grant` share one dedicated VC (§3.2.1) and that VC
+preserves their mutual order, then a grant for a request can be guaranteed to
+follow its retry, and the endpoint reconciliation counters of §5.1 can be
+**reduced or eliminated**. If ordering is *not* guaranteed, `HR_Grant` and normal
+credit/completion returns **may** arrive at the source in either order relative to
+a preceding `HR_RetryAck` (the hazard Thibaut flagged: "credit returns may bypass
+retries"), and the source reconciles via §5.1 counters. **IRR preference:** use
+the shared ordered VC to keep the source simple; fall back to endpoint
+reconciliation only if ordering cannot be guaranteed.
 
 ---
 
@@ -581,7 +644,8 @@ matrix is the theoretical maximum; §5.3 gives the recommended reduced form.
 
 ### 5.1 Source-side counters (per `{target, VC}`)
 
-Up to three counters, per Thibaut's model:
+Up to three reconciliation counters, per Thibaut's model (these may be reduced or
+eliminated if the retry/grant VC is ordered, §4.4):
 
 1. **Credits expected** (`N−P`): source received N retries but is still missing P
    credits (N>P). Eliminable if the implementation guarantees retries always
@@ -590,6 +654,19 @@ Up to three counters, per Thibaut's model:
    retries (P>N) — possible because credit returns may bypass retries (§4.4).
 3. **Credits stocked** (`P`): credits received but not yet acted upon. Eliminable
    if the source always acts on a credit immediately.
+
+**Speculative-ongoing counter (recommended).** In addition, the source **should**
+maintain a **speculative-ongoing** counter: the number of first-attempt
+(speculative) requests currently outstanding and not yet accepted/credited. The
+source's issue policy **should** depend on it: with few speculative requests
+outstanding, continue issuing speculatively; as the count grows (especially while
+retries are arriving), the source **should** back off speculation and shift toward
+**credited** issue. As an optimization, the source **may** send an **upfront bulk
+credit-acquisition** request (asking for multiple credits in a single message) so
+upcoming traffic goes straight to credited issue, giving the target breathing room
+and amortizing the request overhead. (Mirror of the optional batched grant-count
+in §4.3, applied in the request direction.) Exact policy is an open item for
+modeling/brainstorm (OI-8).
 
 ### 5.2 Target-side (HA) counters (per `{source, VC}`)
 
@@ -615,18 +692,25 @@ the source×target cross-product and the ×8 VC and ×3 multipliers.
 each HA instance keep:
 
 - **Aggregate pooled-resource counter(s)** — answers "do I have room at all"
-  (physical constraint). A handful per resource class.
-- **Per-source occupancy vector** (`Total ongoing`, optionally per-VC) — answers
-  "who is admitted / who to throttle" (fairness/attribution). At one HA this is
+  (physical constraint). A handful per resource class. Because of reservation-based
+  deadlock avoidance (§3.3.8), availability is evaluated **per VC**: the same
+  resource may be available to one VC and not another.
+- **Per-source occupancy vector** (`Total ongoing`, **per-VC — mandatory**) —
+  answers "who is admitted / who to throttle" (fairness/attribution) **and** which
+  VC a resource is reserved-available for. At one HA this is
   O(sources), e.g. 64 counters ≈ 64–192 B per instance; ~0.5–2.3 kB chip-wide
   across ~8–12 HA instances — 2–3 orders of magnitude below the full matrix.
 - **Reconciliation counters** (`Credits expected` / `Retry expected`) **only if**
-  ordering guarantees of §5.1/§5.2 cannot be met; otherwise omit.
+  the retry/grant VC is not ordered (§4.4); otherwise omit.
 
 The aggregate counter and the per-source vector are **not redundant**: the former
-gates capacity, the latter gates *selective* admission/QoS. Dropping the
-per-source dimension would leave a scheme that can detect congestion but cannot
-act selectively — forfeiting the QoS goal (§1.2 benefit 4).
+gates capacity, the latter gates *selective* admission/QoS. The **per-VC**
+dimension is **not** droppable — it is what exposes reservation-based deadlock
+avoidance (§3.3.8). Dropping the per-source dimension would leave a scheme that
+can detect congestion but cannot act selectively — forfeiting the QoS goal (§1.2
+benefit 4). The reduced tracking is primarily about keeping the **decision logic**
+(comparator area/latency) small in the common case; it is not a license to drop
+per-source or per-VC state.
 
 ### 5.4 Cost driver is logic, not storage
 
@@ -641,23 +725,30 @@ evaluated combinationally to sustain the N/cycle retry-decision rate (§3.3.1).
 
 | IRR concept | Nearest CHI primitive | Difference / why new |
 |-------------|----------------------|----------------------|
-| `HR_RetryAck` | `RetryAck` (+`PCrdType`) | `PoolID` may include VC granularity |
+| `HR_RetryAck` | `RetryAck` (+`PCrdType`) | On a dedicated retry/grant VC (§3.2.1) |
 | `HR_Grant` | `PCrdGrant` | Optional batched grant-count |
-| Reissue request | Post-PCrdGrant reissue | Same opcode; optional `HR_Reissue` hint (no CHI equiv.) |
-| `PoolID` | `PCrdType` | Per-`{resource-class,VC}`, not per-transaction-class only |
+| Reissue request | Post-PCrdGrant reissue | **Mandatory** per-message speculative/retried bit (§4.2) |
+| `PoolID` / VC | `PCrdType` / protocol VC | **Same as CHI.** "Resource class" here **is** the protocol VC; only the *number* of VCs may differ by protocol |
 | Per-source occupancy | Per-Requester outstanding @ HN | Explicit QoS/early-retry use |
-| Grant-gated reissue (P1) | RetryAck→PCrdGrant discipline | Adopted directly (livelock-safe) |
-| Endpoint reconciliation (§4.4) | CHI channel ordering rules | IRR moves it to endpoints to keep fabric unchanged |
+| Per-VC availability | CHI credit-type availability | Exposes reservation-based deadlock avoidance (§3.3.8) |
+| Grant-gated reissue (P1) | RetryAck→PCrdGrant discipline | Adopted directly |
+| Endpoint reconciliation (§4.4) | CHI channel ordering rules | Needed only if retry/grant VC is unordered |
 | Retryable data messages (§3.1.5) | Write retry / DataPull | Generalized to arbitrary data VCs (push-to-pull) |
 
+> **Clarification (VC terminology).** Throughout, "VC" means **protocol VC**, which
+> is what §6 earlier called "resource class." This is **exactly the CHI model**;
+> the only possible variation versus CHI is the **number** of VCs required, which
+> depends on the protocol, not on any conceptual difference.
+
 **Key adopted idea:** CHI's retry is **credit-grant-gated, not spin-based** — the
-source reissues only after `PCrdGrant`. This directly addresses the "stuck in
-retry regime" livelock risk (§7) and is the main reason to model on CHI E2E rather
-than inventing a blind-retry scheme.
+source reissues only after `PCrdGrant`. This provides the **general forward-progress
+guarantee**: every request succeeds on its credited second attempt. It does
+**not**, by itself, prevent a sustained **retry regime** (everything paying ≈2×);
+that separate performance risk is addressed by the hysteresis mechanism of §7.2.
 
 ---
 
-## 7. Deadlock, Livelock & the Retry Regime
+## 7. Forward Progress, the Retry Regime & Deadlock
 
 ### 7.1 Push-to-pull deadlock
 
@@ -667,27 +758,43 @@ data message that cannot be sunk is retried and later grant-gated, rather than
 holding fabric buffering hostage. This is treated as a **correctness** benefit,
 not merely performance.
 
-### 7.2 Stuck-in-retry (livelock) — primary risk
+### 7.2 Forward progress vs. the "retry regime" — two different things
 
-Once retry triggers (possibly forced by resource exhaustion), the system must
-**provably** return to non-retry operation. Risk: a self-sustaining regime where
-everything is retried even after congestion clears, paying ≈2× latency/throughput
-indefinitely — a hazard plain backpressure does **not** incur.
+**Terminology caution.** Avoid the word *livelock* for this scheme. "Livelock"
+wrongly suggests that retry might fail repeatedly and never succeed. It cannot:
+this is an **E2E crediting** mechanism with a **speculative first attempt** and a
+**credited second attempt**, and the credited reissue is **guaranteed to
+succeed**. The system does not hang or crash.
 
-**Mitigation (grant-gated, from CHI):** because reissue is gated by `HR_Grant`
-(P1/P3), the HA controls the reissue rate. The HA **shall** guarantee forward
-progress by:
+What *can* happen is a **sustained "two-attempt" regime**: after congestion is
+gone, traffic keeps speculating, getting retried, and succeeding credited — paying
+≈2× latency/throughput indefinitely. This is a **performance** problem, **not** a
+correctness livelock, and plain backpressure does not incur it.
 
-- issuing grants in bounded time once resources free (no indefinite withholding);
-- fair grant arbitration so no source is starved of grants;
-- a **hysteresis exit condition**: once per-source occupancy and pooled-resource
-  counters fall below a *lower* threshold (distinct from the *upper* early-retry
-  threshold), the HA **shall** stop issuing early (QoS) retries and accept
-  first-issue requests directly — returning to non-retry steady state.
+**Mitigation (hysteresis).** Because reissue is grant-gated (P1/P3), the HA
+controls the reissue rate. To leave the retry regime the HA **shall**:
+
+- issue grants in bounded time once resources free (no indefinite withholding);
+- arbitrate grants fairly so no source is starved of grants;
+- apply a **hysteresis exit condition**: once per-source occupancy and
+  pooled-resource (per-VC) availability recover past a *lower* threshold (distinct
+  from the *upper* early-retry threshold), the HA **shall** stop issuing early
+  (QoS) retries and accept first-issue (speculative) requests directly — returning
+  to non-retry steady state.
 
 Hysteresis (two thresholds) prevents oscillation between retry and non-retry.
+Note this is a **separate** guarantee from the forward-progress guarantee provided
+by crediting (§6): crediting ensures *success*, hysteresis ensures *efficiency*.
 
-### 7.3 Data buffering scalability
+### 7.3 Deadlock avoidance (by reservation, not detection)
+
+Deadlock freedom is provided by resource **reservations** exposed as **per-VC
+availability** (§3.3.8), not by any HA-side deadlock detector. The retry mechanism
+never needs to "detect" a deadlock; it simply observes a resource as unavailable
+*for a given VC* and retries, while the reserved entries for other VCs keep the
+system making progress.
+
+### 7.4 Data buffering scalability
 
 Retained data for retryable data messages (§3.1.5) is bounded by the number of
 outstanding retryable data transactions per source, which is itself bounded by
@@ -724,6 +831,14 @@ Tracked separately in [open-issues.md](open-issues.md). Summary:
 - **OI-6** VC-by-VC retryability audit (which VCs can be fully retryable).
 - **OI-7** Interaction with HAMVF early-completion (§8.10.23) and existing
   DRS/NDR trash-and-retry (§8.10.28.1) — unify or keep separate.
+- **OI-8** Per-cycle retry-decision logic cost (N/cycle admission + comparators).
+- **OI-9** Data-message retry buffering bound and re-fetch vs. retain tradeoff.
+- **OI-10** Push-to-pull scenario detail (strongest justification for retryable data).
+- **OI-11** Source issue policy under retry: speculative-ongoing counter behavior,
+  speculative→credited backoff, and upfront bulk credit acquisition (§5.1) —
+  brainstorm/model.
+- **OI-12** Dedicated retry/grant VC and whether to guarantee retry↔grant ordering
+  to drop endpoint reconciliation counters (§3.2.1, §4.4).
 
 ---
 
